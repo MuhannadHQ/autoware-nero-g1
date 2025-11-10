@@ -1,0 +1,20 @@
+# Base Autoware development image
+FROM ghcr.io/autowarefoundation/autoware:universe-devel-cuda
+
+LABEL maintainer="dev@nero.com"
+
+# Set working directory
+WORKDIR /workspace
+
+# Update OS packages, install nano, Robosense deps, and rqt_graph
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+        nano \
+        libavformat-dev \
+        libavdevice-dev \
+        libavcodec-dev \
+        ros-humble-rqt-graph && \
+    rm -rf /var/lib/apt/lists/*
+    
+# Default to bash shell
+CMD ["/bin/bash"]

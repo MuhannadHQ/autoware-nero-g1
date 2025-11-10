@@ -21,12 +21,14 @@ option_no_nvidia=false
 option_devel=false
 option_headless=false
 option_pull_latest_image=false
+option_nero_g1=false
 MAP_PATH=""
 DATA_PATH=""
 WORKSPACE_PATH=""
 USER_ID=""
 WORKSPACE=""
 DEFAULT_LAUNCH_CMD="ros2 launch autoware_launch autoware.launch.xml map_path:=/autoware_map vehicle_model:=sample_vehicle sensor_model:=sample_sensor_kit"
+CONTAINER_NAME="nero-g1"
 
 # Function to print help message
 print_help() {
@@ -44,6 +46,7 @@ print_help() {
     echo -e "  ${GREEN}--no-nvidia${NC}          Disable NVIDIA GPU support"
     echo -e "  ${GREEN}--headless${NC}           Run Autoware in headless mode (default: false)"
     echo -e "  ${GREEN}--pull-latest-image${NC}  Pull the latest image before starting the container"
+    echo -e "  ${GREEN}--nero-g1${NC}            Launch the Nero-G1 custom development environment"
     echo ""
 }
 
@@ -60,6 +63,9 @@ parse_arguments() {
             ;;
         --devel)
             option_devel=true
+            ;;
+        --nero-g1)
+            option_nero_g1=true
             ;;
         --headless)
             option_headless=true
@@ -113,7 +119,21 @@ set_variables() {
         DATA="-v ${DATA_PATH}:/autoware_data:rw"
     fi
 
-    if [ "$option_devel" = "true" ]; then
+    if [ "$option_nero_g1" = "true" ]; then
+        IMAGE="autoware:nero-g1"
+
+        # Set workspace path if not provided
+        if [ "$WORKSPACE_PATH" = "" ]; then
+            WORKSPACE_PATH=$(pwd)
+        fi
+        WORKSPACE="-v ${WORKSPACE_PATH}:/workspace"
+
+        # Default command
+        if [ "$LAUNCH_CMD" = "" ]; then
+            LAUNCH_CMD="/bin/bash"
+        fi
+
+    elif [ "$option_devel" = "true" ]; then
         # Set image based on option
         IMAGE="ghcr.io/autowarefoundation/autoware:universe-devel"
 
@@ -125,7 +145,7 @@ set_variables() {
 
         # Set launch command
         if [ "$LAUNCH_CMD" = "" ]; then
-            LAUNCH_CMD="/bin/bash"
+        	LAUNCH_CMD="/bin/bash"
         fi
     else
         # Set image based on option
@@ -151,7 +171,13 @@ set_gpu_flag() {
     if [ "$option_no_nvidia" = "true" ]; then
         GPU_FLAG=""
     else
-        GPU_FLAG="--gpus all"
+        if [ "$(uname -m)" = "aarch64" ]; then
+            # On ARM (Jetson), use NVIDIA runtime
+            GPU_FLAG="--runtime nvidia"
+        else
+            # On x86_64, use standard --gpus flag
+            GPU_FLAG="--gpus all"
+        fi
         IMAGE=${IMAGE}-cuda
     fi
 }
@@ -196,10 +222,22 @@ main() {
 
     # Launch the container
     set -x
-    docker run -it --rm --net=host ${GPU_FLAG} ${USER_ID} ${MOUNT_X} \
-        -e XAUTHORITY=${XAUTHORITY} -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR -e NVIDIA_DRIVER_CAPABILITIES=all -e TZ="$(cat /etc/timezone)" \
-        ${WORKSPACE} ${MAP} ${DATA} ${IMAGE} \
-        ${LAUNCH_CMD}
+    
+    RUNNING_CONTAINER=$(docker ps -q -f name=^/${CONTAINER_NAME}$)
+
+	if [ -n "$RUNNING_CONTAINER" ]; then
+	    echo "Container '${CONTAINER_NAME}' is already running. Attaching..."
+	    docker exec -it $RUNNING_CONTAINER /bin/bash
+	else
+	    echo "Starting a new container named '${CONTAINER_NAME}'..."
+	    docker run -it --name $CONTAINER_NAME \
+		--net=host --privileged --device /dev/bus/usb:/dev/bus/usb \
+		-w /workspace ${GPU_FLAG} ${USER_ID} ${MOUNT_X} \
+		-e XAUTHORITY=${XAUTHORITY} -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
+		-e NVIDIA_DRIVER_CAPABILITIES=all -e TZ="$(cat /etc/timezone)" \
+		${WORKSPACE} ${MAP} ${DATA} ${IMAGE} \
+		${LAUNCH_CMD}
+fi
 }
 
 # Execute the main script
