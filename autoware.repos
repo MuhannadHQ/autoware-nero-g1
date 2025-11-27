@@ -98,7 +98,7 @@ repositories:
   launcher/autoware_launch:
     type: git
     url: https://github.com/MuhannadHQ/autoware_launch-nero-g1.git
-    version: ac1
+    version: add_cam
   # sensor_component
   sensor_component/external/sensor_component_description:
     type: git
